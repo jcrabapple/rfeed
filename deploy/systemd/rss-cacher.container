@@ -6,14 +6,17 @@
 #
 # rss-cacher caches Reddit RSS feeds and serves the last good copy at
 # GET /rss/{name}. Register feeds with ../../setup-cacher.py (edit SUBS first).
+#
+# Host port 8082 is part of the contract: setup-cacher.py and the bundled
+# Caddyfile both expect it.
 
 [Unit]
 Description=rss-cacher (Reddit RSS cache for r/Feed)
 
 [Container]
-Image=ghcr.io/cksidharthan/rss-cacher:latest
+Image=ghcr.io/cksidharthan/rss-cacher@sha256:4fa7e5b3f7d0f41404a370782a708f926950d3be36a5e24d38ebf089d7c5def6
 ContainerName=rss-cacher
-PublishPort=127.0.0.1:8080:8080
+PublishPort=127.0.0.1:8082:8080
 Volume=rss-cacher-data:/app/data
 Environment=OTEL_ENABLED=false
 Environment=ENVIRONMENT=production

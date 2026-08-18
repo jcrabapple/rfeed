@@ -43,6 +43,7 @@ const state = {
   limit: PAGE_SIZE,
   focus: -1,        // keyboard-nav focused card index
   readIds: loadReadIds(),
+  manageDirty: true,
 };
 if (!SORTS.some(([k]) => k === state.sort)) state.sort = "hot";
 
@@ -59,10 +60,16 @@ const $metaTheme = document.getElementById("meta-theme-color");
 $sort.value = state.sort;
 
 /* ---------- storage ---------- */
+const SUB_RE = /^[A-Za-z0-9_]{2,21}$/;
+function validSub(s) { return SUB_RE.test(s); }
+
 function loadSubs() {
   try {
     const raw = JSON.parse(localStorage.getItem(LS_SUBS));
-    if (Array.isArray(raw) && raw.length) return raw;
+    if (Array.isArray(raw) && raw.length) {
+      const valid = raw.filter((s) => validSub(s));
+      if (valid.length) return [...new Set(valid.map((s) => s.toLowerCase()))];
+    }
   } catch (e) {}
   return [...DEFAULT_SUBS];
 }
@@ -140,7 +147,9 @@ async function fetchFeed(sub) {
   if (items) { saveCacheEntry(cacheKey, items); return items; }
 
   if (entry && entry.items && entry.items.length) {
-    return entry.items.map((it) => ({ ...it, date: new Date(it.date) }));
+    const staleItems = entry.items.map((it) => ({ ...it, date: new Date(it.date) }));
+    staleItems.stale = true;
+    return staleItems;
   }
   throw new Error(lastErr ? String(lastErr.message || lastErr) : "feed unavailable (rate limited)");
 }
@@ -150,8 +159,24 @@ function loadCache() {
 }
 function saveCacheEntry(key, items) {
   const cache = loadCache();
-  cache[key] = { t: Date.now(), items: items.map((it) => ({ ...it, date: it.date.toISOString() })) };
-  try { localStorage.setItem(LS_CACHE, JSON.stringify(cache)); } catch (_) {}
+  // Prune: drop entries older than 2x TTL so removed subs / abandoned sorts
+  // don't accumulate until localStorage quota kills all caching.
+  const now = Date.now();
+  for (const k of Object.keys(cache)) {
+    if (now - (cache[k].t || 0) > CACHE_TTL_MS * 2) delete cache[k];
+  }
+  cache[key] = { t: now, items: items.map((it) => ({ ...it, date: it.date.toISOString() })) };
+  try {
+    localStorage.setItem(LS_CACHE, JSON.stringify(cache));
+  } catch (_) {
+    // Quota exceeded: evict oldest entries and retry once.
+    const oldest = Object.entries(cache)
+      .sort((a, b) => (a[1].t || 0) - (b[1].t || 0))
+      .slice(0, Math.max(1, Math.ceil(Object.keys(cache).length / 2)))
+      .map(([k]) => k);
+    for (const k of oldest) delete cache[k];
+    try { localStorage.setItem(LS_CACHE, JSON.stringify(cache)); } catch (_2) {}
+  }
 }
 
 /* ---------- RSS/Atom parsing ---------- */
@@ -181,7 +206,8 @@ function parseRss(xml) {
     const title = txt(it, "title");
     const link = txt(it, "link");
     const date = txt(it, "pubDate");
-    const desc = txt(it, "description") || txt(it, "encoded");
+    const enc = it.getElementsByTagName("content:encoded")[0];
+    const desc = txt(it, "description") || (enc ? enc.textContent : "");
     if (title && link) items.push({
       id: txt(it, "guid") || "",
       sub: txt(it, "category") || "",
@@ -216,15 +242,20 @@ function authorName(it) {
   return n ? (n.textContent || "").replace(/^\/?u\//, "") : "";
 }
 function decodeEntities(s) {
-  const d = document.createElement("div");
-  d.innerHTML = s;
-  return d.textContent || "";
+  // RCDATA element: tags in the input stay inert text, never parsed as HTML.
+  const t = document.createElement("textarea");
+  t.innerHTML = s;
+  return t.value || "";
 }
 function previewText(html) {
   if (!html) return "";
-  const d = document.createElement("div");
-  d.innerHTML = html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "");
-  let text = (d.textContent || "").replace(/\s+/g, " ").trim();
+  // Parse with DOMParser (inert document): no scripts/images execute or load,
+  // unlike setting innerHTML on a live element.
+  const doc = new DOMParser().parseFromString(
+    html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, ""),
+    "text/html"
+  );
+  let text = (doc.body ? doc.body.textContent : "").replace(/\s+/g, " ").trim();
   if (!text) return "";
   // Reddit feed boilerplate: "submitted by /u/x [link] [comments]" — appears
   // whole for link/media posts, and as a trailing suffix on truncated bodies.
@@ -238,26 +269,35 @@ function previewText(html) {
 }
 
 /* ---------- refresh logic ---------- */
-let refreshing = false;
+let refreshGen = 0;
+let lastRefreshAt = 0;
 async function refreshAll() {
-  if (refreshing) return;
-  refreshing = true;
+  const gen = ++refreshGen;
   state.limit = PAGE_SIZE;
   $refreshBtn.classList.add("spinning");
-  for (const sub of state.subs) state.feeds.set(sub, { items: [], error: null, loading: true });
+  const subs = [...state.subs]; // snapshot: mid-loop mutations must not affect us
+  for (const sub of subs) {
+    const prev = state.feeds.get(sub);
+    state.feeds.set(sub, { items: prev ? prev.items : [], error: prev ? prev.error : null, loading: true });
+  }
   render();
-  for (let i = 0; i < state.subs.length; i++) {
-    const sub = state.subs[i];
+  for (let i = 0; i < subs.length; i++) {
+    const sub = subs[i];
+    if (gen !== refreshGen) return; // superseded by a newer refreshAll
     try {
       const items = await fetchFeed(sub);
-      state.feeds.set(sub, { items, error: null, loading: false });
+      if (gen !== refreshGen) return;
+      state.feeds.set(sub, { items, error: null, loading: false, stale: items.stale || false });
     } catch (e) {
+      if (gen !== refreshGen) return;
       state.feeds.set(sub, { items: [], error: String(e.message || e), loading: false });
     }
+    if (gen !== refreshGen) return;
     render();
-    if (i < state.subs.length - 1) await sleep(STAGGER_MS);
+    if (i < subs.length - 1) await sleep(STAGGER_MS);
   }
-  refreshing = false;
+  if (gen !== refreshGen) return;
+  lastRefreshAt = Date.now();
   $refreshBtn.classList.remove("spinning");
   render();
 }
@@ -333,7 +373,16 @@ function renderTabs() {
 
 function renderFeed() {
   $feed.innerHTML = "";
-  if (state.tab === "manage") { renderManage(); return; }
+  if (state.tab === "manage") {
+    // Rebuild the manage panel only when entering it or when the sub list
+    // changed; otherwise refreshes would wipe the user's typing/focus.
+    const existing = $feed.querySelector(".panel");
+    if (!existing || state.manageDirty) {
+      state.manageDirty = false;
+      renderManage();
+    }
+    return;
+  }
 
   const anyLoading = state.subs.some((s) => state.feeds.get(s)?.loading);
   const items = currentItems();
@@ -388,16 +437,24 @@ function card(it, showBadge) {
   if (it.id && state.readIds.has(it.id)) el.classList.add("read");
   const a = document.createElement("a");
   a.className = "title";
-  a.href = it.link;
-  a.target = "_blank";
-  a.rel = "noopener";
+  // Only http(s) links: a feed must never inject javascript:/data: hrefs
+  if (/^https?:\/\//i.test(it.link)) {
+    a.href = it.link;
+    a.target = "_blank";
+    a.rel = "noopener";
+  } else {
+    a.href = "#";
+    a.classList.add("linkless");
+  }
   a.textContent = it.title;
-  a.addEventListener("click", () => {
+  const mark = () => {
     markRead(it.id);
     el.classList.add("read");
     renderTabs();
     renderState();
-  });
+  };
+  a.addEventListener("click", mark);
+  a.addEventListener("auxclick", (e) => { if (e.button === 1) mark(); });
   el.appendChild(a);
   const meta = document.createElement("div");
   meta.className = "card-meta";
@@ -435,6 +492,7 @@ function renderManage() {
       state.subs = state.subs.filter((s) => s !== sub);
       if (state.tab === sub) state.tab = "all";
       saveSubs();
+      state.manageDirty = true;
       render();
       refreshAll();
     };
@@ -456,9 +514,10 @@ function renderManage() {
     const name = input.value.trim().replace(/^\/?(r\/|u\/|u:)/i, "");
     if (!/^[A-Za-z0-9_]{2,21}$/.test(name)) { input.focus(); return; }
     if (state.subs.some((s) => s.toLowerCase() === name.toLowerCase())) { input.value = ""; return; }
-    state.subs.push(name);
+    state.subs.push(name.toLowerCase());
     input.value = "";
     saveSubs();
+    state.manageDirty = true;
     render();
     refreshAll();
   };
@@ -515,7 +574,8 @@ function renderState() {
     const n = q ? currentItems().length : 0;
     let unread = 0;
     for (const s of state.subs) unread += unreadCount(state.feeds.get(s)?.items);
-    txt = `${errs ? errs + " feed error · " : ""}${q ? n + " matches · " : ""}${unread} unread · updated ${relTime(new Date()).replace(" ago", "")}`;
+    const staleCount = state.subs.filter((s) => state.feeds.get(s)?.stale).length;
+    txt = `${errs ? errs + " feed error · " : ""}${staleCount ? staleCount + " feed(s) stale · " : ""}${q ? n + " matches · " : ""}${unread} unread · updated ${relTime(new Date()).replace(" ago", "")}`;
   }
   $refreshState.textContent = txt;
   $refreshState.title = txt;
@@ -579,15 +639,15 @@ function importFromHash() {
     const json = decodeURIComponent(escape(atob(m[1].replace(/-/g, "+").replace(/_/g, "/"))));
     const data = JSON.parse(json);
     if (data && data.v === 1 && Array.isArray(data.subs)) {
-      const valid = data.subs.map((s) => String(s).trim()).filter((s) => /^[A-Za-z0-9_]{2,21}$/.test(s));
+      const valid = data.subs.map((s) => String(s).trim()).filter((s) => validSub(s));
       if (valid.length) {
-        state.subs = [...new Set(valid)];
+        state.subs = [...new Set(valid.map((s) => s.toLowerCase()))];
         saveSubs();
         changed = true;
       }
       if (SORTS.some(([k]) => k === data.sort)) {
         state.sort = data.sort;
-        localStorage.setItem(LS_SORT, state.sort);
+        try { localStorage.setItem(LS_SORT, state.sort); } catch (e) {}
         $sort.value = state.sort;
         changed = true;
       }
@@ -601,7 +661,7 @@ function importFromHash() {
 $refreshBtn.onclick = refreshAll;
 $sort.onchange = () => {
   state.sort = $sort.value;
-  localStorage.setItem(LS_SORT, state.sort);
+  try { localStorage.setItem(LS_SORT, state.sort); } catch (e) {}
   state.limit = PAGE_SIZE;
   refreshAll();
 };
@@ -665,6 +725,14 @@ setInterval(() => {
 }, 60000);
 
 setInterval(() => { if (document.visibilityState === "visible") refreshAll(); }, AUTO_REFRESH_MS);
+
+// Refresh shortly after a hidden tab becomes visible again if the data has
+// gone stale — avoids showing a stale feed to a returning user.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && lastRefreshAt && Date.now() - lastRefreshAt > CACHE_TTL_MS) {
+    refreshAll();
+  }
+});
 
 /* ---------- boot ---------- */
 setTheme(document.documentElement.getAttribute("data-theme") || "dark", false);

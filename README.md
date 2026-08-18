@@ -97,7 +97,8 @@ Search (`/`), read/unread tracking with per-tab unread badges + mark-all-read,
 keyboard nav (`j`/`k`/`Enter`/`r`/`/`/`Esc`), progressive "show more"
 (fetches limit=100), 8 sort variants, dark/light theme, config share via
 `#rf=<base64url>` fragment (auto-imports on load or hashchange),
-dedupe by post ID, stale-cache fallback, two-pass retry with backoff on 429.
+dedupe by post ID, stale-cache fallback with staleness surfaced in the UI,
+two-pass retry with backoff on failures.
 State lives in localStorage (`rf.*` keys).
 
 ## Deploy
@@ -121,7 +122,12 @@ JS/CSS change — browsers cache them aggressively.
   (registration bursts included). Keep per-feed fetches spread; the cacher
   retries with backoff each cycle and the app falls back gracefully.
 - rss-cacher username must be an email; registration is open — never expose
-  the admin API publicly (caddy blocks everything but the gated paths).
+  the admin API publicly (the bundled Caddy config gates the cache route to
+  GET /rss/* + /healthz with a shared token).
+- **Keep secret files outside the Caddy webroot.** cacher.env and
+  cache-token.env must live somewhere Caddy does not serve (the example
+  defaults to `~/.config/rfeed/`); the bundled Caddyfile also hides
+  `*.env`, `.git`, and `.herenow`.
 - here.now proxy routes: same-origin only, query params forwarded,
   browser headers stripped (inject User-Agent via the manifest).
 

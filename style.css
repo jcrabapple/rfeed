@@ -25,7 +25,7 @@
 }
 * { box-sizing: border-box; }
 html { scrollbar-color: #333a48 var(--bg); }
-[data-theme="light"] html, html[data-theme="light"] { scrollbar-color: #b6bdc9 var(--bg); }
+html[data-theme="light"] { scrollbar-color: #b6bdc9 var(--bg); }
 body {
   margin: 0;
   background: var(--bg);
@@ -237,5 +237,8 @@ select {
   .brand { flex: 1 1 auto; }
   .topbar-actions { flex: 1 1 100%; }
   .search-box { max-width: none; }
+  /* The topbar wraps to two rows at this width; a sticky tab row at a
+     fixed 57px offset would overlap the header content. */
+  .tabs { position: static; }
 }
 @media (max-width: 420px) { .foot { display: none; } }

@@ -51,7 +51,12 @@ CONTENT_TYPES = {
 
 
 def api_key():
-    return open(os.path.expanduser("~/.herenow/credentials")).read().strip()
+    try:
+        return open(os.path.expanduser("~/.herenow/credentials")).read().strip()
+    except FileNotFoundError:
+        print("Error: ~/.herenow/credentials not found. Get an API key from "
+              "https://here.now and save it there (chmod 600).")
+        sys.exit(1)
 
 
 def api(method, url, body=None):
@@ -70,24 +75,56 @@ def api(method, url, body=None):
 
 def upload_all(upload):
     for entry in upload.get("uploads", []):
-        with open(entry["path"], "rb") as f:
+        path = entry.get("path")
+        # Never trust a server-returned path for local file access.
+        if path not in FILES:
+            print(f"Error: unexpected upload path '{path}' from API, aborting.")
+            sys.exit(1)
+        with open(path, "rb") as f:
             data = f.read()
         req = urllib.request.Request(entry["url"], method="PUT", data=data)
         for k, v in entry.get("headers", {}).items():
             req.add_header(k, v)
-        urllib.request.urlopen(req, timeout=300)
+        with urllib.request.urlopen(req, timeout=300) as r:
+            r.read()
+
+
+def validate_proxy_manifest(src):
+    """The local override must contain all three routes the app relies on."""
+    try:
+        with open(src) as f:
+            proxies = json.load(f).get("proxies", {})
+    except Exception as e:
+        print(f"Error: {src} is not valid JSON: {e}")
+        sys.exit(1)
+    required = ["/rss/*", "/old-rss/*", "/cache/*"]
+    missing = [k for k in required if k not in proxies]
+    if missing:
+        print(f"Error: {src} is missing proxy routes: {', '.join(missing)}. "
+              "All three are required (the app falls back across them).")
+        sys.exit(1)
 
 
 def main():
     args = sys.argv[1:]
     slug = None
     if "--slug" in args:
-        slug = args[args.index("--slug") + 1]
+        i = args.index("--slug")
+        if i + 1 >= len(args):
+            print("Error: --slug requires a value.")
+            sys.exit(1)
+        slug = args[i + 1]
 
     if "--delete" in args:
+        if not slug:
+            print("Error: --delete requires an explicit --slug <s>. "
+                  "Refusing to guess the target.")
+            sys.exit(1)
         res = api("DELETE", f"/publish/{slug}")
         print("deleted:", res)
         return
+
+    validate_proxy_manifest(PROXY_SRC)
 
     files = []
     for p in FILES:
@@ -103,6 +140,16 @@ def main():
 
     if "--create" in args:
         res = api("POST", "/publish", {"files": files})
+        new_slug = res.get("slug")
+        # Persist the new slug so a bare `python3 deploy.py` targets it.
+        if new_slug and not os.path.exists(LOCAL_CFG):
+            try:
+                with open(LOCAL_CFG, "w") as f:
+                    json.dump({"slug": new_slug}, f, indent=2)
+                os.chmod(LOCAL_CFG, 0o600)
+                print(f"wrote {LOCAL_CFG} with slug {new_slug}")
+            except Exception as e:
+                print(f"note: could not write {LOCAL_CFG}: {e}")
     else:
         target = slug or prod_slug()
         if not target:

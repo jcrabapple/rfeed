@@ -53,18 +53,32 @@ def main():
         creds["NAME"] = "rfeed-admin"
         creds["USERNAME"] = "rfeed@localhost"
         creds["PASSWORD"] = secrets.token_urlsafe(24)
+        os.makedirs(os.path.dirname(ENV_FILE), exist_ok=True)
         with open(ENV_FILE, "w") as f:
             f.write(f"NAME={creds['NAME']}\nUSERNAME={creds['USERNAME']}\nPASSWORD={creds['PASSWORD']}\n")
         os.chmod(ENV_FILE, 0o600)
 
-    # Login (register if needed)
+    # Login (register only on auth failure, not on transient server errors)
+    token = None
     try:
         res = call("POST", "/login", {"username": creds["USERNAME"], "password": creds["PASSWORD"]})
-    except urllib.error.HTTPError:
-        res = call("POST", "/register", {
-            "name": creds["NAME"], "username": creds["USERNAME"], "password": creds["PASSWORD"],
-        })
-    token = res.get("token")
+        token = res.get("token")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            try:
+                res = call("POST", "/register", {
+                    "name": creds["NAME"], "username": creds["USERNAME"], "password": creds["PASSWORD"],
+                })
+                token = res.get("token")
+            except urllib.error.HTTPError as e2:
+                if e2.code == 409:
+                    print(f"Error: a cacher account already exists for {creds['USERNAME']} "
+                          f"but the stored password in {ENV_FILE} is wrong. "
+                          "Delete that file and re-run to reset local credentials.")
+                    raise SystemExit(1)
+                raise
+        else:
+            raise
     if not token:
         print("no token in response:", res)
         raise SystemExit(1)

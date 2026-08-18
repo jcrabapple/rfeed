@@ -13,15 +13,23 @@
 #
 # If the /cache route is unavailable (no CACHE_TOKEN env set), requests are
 # rejected and the app automatically falls back to the direct routes.
-
+#
+# PORT CONTRACT: the rss-cacher container publishes host port 8082 (see
+# deploy/systemd/rss-cacher.container). Pick a site port here that is NOT
+# 8082, or Caddy and the cacher will collide.
 {
 	admin off
 }
 
 :8080 {
-	# Static app files (repo root: index.html, style.css, app.js)
+	# Static app files (repo root: index.html, style.css, app.js).
+	# Never put secret files (cacher.env, cache-token.env) in this directory.
 	root * /path/to/rfeed
-	file_server
+	file_server {
+		hide .git
+		hide .herenow
+		hide *.env
+	}
 
 	# Primary Reddit route. Reddit blocks default user agents, so spoof one.
 	# handle_path strips /rss, the rewrite prepends /r, so the upstream sees
@@ -41,13 +49,19 @@
 		}
 	}
 
-	# Optional cache route. Gate it behind a shared token so the cacher's
-	# open-registration admin API is never reachable from the internet.
-	# Set CACHE_TOKEN in the environment (or an EnvironmentFile) to enable.
+	# Optional cache route. Only GET requests to the cacher's public read
+	# endpoints pass, and only with the shared token — the cacher's admin
+	# API (register/feeds) stays unreachable. Set CACHE_TOKEN in the
+	# environment (or an EnvironmentFile) to enable; when unset every
+	# request is rejected and the app falls back to the direct routes.
 	handle_path /cache/* {
-		@gated header X-Cache-Token {env.CACHE_TOKEN}
+		@gated {
+			header X-Cache-Token {env.CACHE_TOKEN}
+			path /rss/* /healthz
+			method GET
+		}
 		handle @gated {
-			reverse_proxy 127.0.0.1:8080
+			reverse_proxy 127.0.0.1:8082
 		}
 		respond 403
 	}

@@ -14,7 +14,8 @@ Wants=network-online.target
 Type=simple
 ExecStart=/usr/bin/caddy run --config %h/projects/rfeed/Caddyfile
 # Optional: token for the /cache route, one line: CACHE_TOKEN=<secret>
-EnvironmentFile=-%h/projects/rfeed/cache-token.env
+# Keep this file OUTSIDE the directory Caddy serves (see the Caddyfile note).
+EnvironmentFile=-%h/.config/rfeed/cache-token.env
 Restart=on-failure
 RestartSec=5
 
