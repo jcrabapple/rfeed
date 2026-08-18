@@ -1,0 +1,27 @@
+# Quadlet for the optional rss-cacher (Podman, Fedora 41+ / rootless).
+#
+# Install: cp rss-cacher.container ~/.config/containers/systemd/
+#          systemctl --user daemon-reload
+#          systemctl --user start rss-cacher
+#
+# rss-cacher caches Reddit RSS feeds and serves the last good copy at
+# GET /rss/{name}. Register feeds with ../../setup-cacher.py (edit SUBS first).
+
+[Unit]
+Description=rss-cacher (Reddit RSS cache for r/Feed)
+
+[Container]
+Image=ghcr.io/cksidharthan/rss-cacher:latest
+ContainerName=rss-cacher
+PublishPort=127.0.0.1:8080:8080
+Volume=rss-cacher-data:/app/data
+Environment=OTEL_ENABLED=false
+Environment=ENVIRONMENT=production
+Environment=FETCH_INTERVAL=15m
+Environment=FETCH_JITTER=4m
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

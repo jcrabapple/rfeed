@@ -1,0 +1,22 @@
+# systemd unit for serving r/Feed with Caddy (see deploy/caddy/Caddyfile).
+#
+# Install: cp rfeed-caddy.service ~/.config/systemd/user/
+#          edit ExecStart paths, then:
+#          systemctl --user daemon-reload
+#          systemctl --user enable --now rfeed-caddy.service
+
+[Unit]
+Description=r/Feed caddy server (static app + Reddit RSS proxies)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/caddy run --config %h/projects/rfeed/Caddyfile
+# Optional: token for the /cache route, one line: CACHE_TOKEN=<secret>
+EnvironmentFile=-%h/projects/rfeed/cache-token.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

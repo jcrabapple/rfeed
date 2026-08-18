@@ -2,7 +2,7 @@
 """Deploy r/Feed to here.now.
 
 Usage:
-  python3 deploy.py                    # update prod slug (jovial-cosmos-amj3)
+  python3 deploy.py                    # update your prod slug (from .deploy.local.json)
   python3 deploy.py --create           # publish to a NEW scratch slug (testing)
   python3 deploy.py --slug <s> --delete  # hard-delete a scratch slug
 
@@ -17,8 +17,6 @@ import sys
 import urllib.request
 
 API = "https://here.now/api/v1"
-# Change this to your own site's slug after `python3 deploy.py --create`.
-PROD_SLUG = "jovial-cosmos-amj3"
 FILES = ["index.html", "style.css", "app.js", ".herenow/proxy.json"]
 # Publish a local proxy override if present (gitignored) instead of the
 # template in the repo: keeps personal upstream hosts out of version control.
@@ -27,6 +25,23 @@ PROXY_SRC = (
     if os.path.exists(".herenow/proxy.local.json")
     else ".herenow/proxy.json"
 )
+# Prod slug lives in a gitignored `.deploy.local.json` file:
+#   {"slug": "your-site-slug"}
+# (created by `python3 deploy.py --create` / here.now). Without it, pass
+# --slug explicitly on every update.
+LOCAL_CFG = ".deploy.local.json"
+
+
+def prod_slug():
+    if os.path.exists(LOCAL_CFG):
+        try:
+            with open(LOCAL_CFG) as f:
+                slug = json.load(f).get("slug")
+                if slug:
+                    return slug
+        except Exception:
+            pass
+    return None
 CONTENT_TYPES = {
     "index.html": "text/html; charset=utf-8",
     "style.css": "text/css; charset=utf-8",
@@ -89,7 +104,12 @@ def main():
     if "--create" in args:
         res = api("POST", "/publish", {"files": files})
     else:
-        res = api("PUT", f"/publish/{slug or PROD_SLUG}", {"files": files})
+        target = slug or prod_slug()
+        if not target:
+            print("Error: no target slug. Create .deploy.local.json with "
+                  '{"slug": "your-site-slug"} or pass --slug <s>.')
+            sys.exit(1)
+        res = api("PUT", f"/publish/{target}", {"files": files})
 
     up = res.get("upload", {})
     upload_all(up)

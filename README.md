@@ -1,16 +1,59 @@
 # r/Feed — subreddit RSS reader
 
-Clean client-side subreddit feed reader. Live at **https://jovial-cosmos-amj3.here.now/**.
+Clean client-side subreddit feed reader.
 
 No build step, no dependencies: `index.html` + `style.css` + `app.js`.
 
 ![r/Feed screenshot](assets/screenshot.png)
 
+Reddit's RSS endpoints don't send CORS headers, so the browser can't fetch
+them directly. The app relies on a small proxy layer that exposes three
+same-origin routes (`/rss/*`, `/old-rss/*`, `/cache/*`). Both self-hosting
+paths below provide it; the cache route is optional in both.
+
+## Self-hosting
+
+### Option A: here.now (fastest)
+
+1. Get an API key from [here.now](https://here.now) and save it to
+   `~/.herenow/credentials`.
+2. `python3 deploy.py --create` publishes a working site immediately:
+   the repo's `.herenow/proxy.json` template already routes the direct
+   Reddit feeds. The app runs with no cache layer.
+3. Optional cache: run rss-cacher (below), create an `RSS_CACHE_TOKEN`
+   variable on your here.now account, and point the `/cache/*` upstream at
+   your host in a gitignored `.herenow/proxy.local.json`.
+
+### Option B: any server with Caddy (no here.now needed)
+
+1. Install [Caddy](https://caddyserver.com/docs/install).
+2. Copy `deploy/caddy/Caddyfile` to the repo root, set the port and the
+   `root *` path to the repo directory.
+3. Run it. The bundled config serves the app and proxies both Reddit
+   routes server-side; the `/cache/*` route is optional and stays disabled
+   until you set a `CACHE_TOKEN` env var.
+4. `deploy/systemd/rfeed-caddy.service` is a ready-made unit.
+
+## Optional cache layer (rss-cacher)
+
+The cache keeps Reddit fetches on your own residential IP (no datacenter
+rate limits) and survives upstream hiccups by serving the last good copy.
+
+1. Start the container: `deploy/systemd/rss-cacher.container` (Podman
+   quadlet) or any `docker/podman run` of
+   `ghcr.io/cksidharthan/rss-cacher` with a persistent volume.
+2. Edit `SUBS` in `setup-cacher.py` and run it to register feeds
+   (idempotent). Feed naming: `{sub-lowercase}-{sort}`.
+3. Expose only `GET /rss/*` and `/healthz` publicly. The bundled Caddy
+   config gates `/cache/*` behind an `X-Cache-Token` header so the
+   cacher's open-registration admin API is never reachable. Put the token
+   in a `cache-token.env` file next to the Caddyfile.
+
 ## Feed architecture (cache-first)
 
 ```
 browser (r/Feed)
-  └─ 1. /cache/rss/{sub}-{sort}   → here.now proxy route → rss-cache.snakepit.us
+  └─ 1. /cache/rss/{sub}-{sort}   → here.now proxy route → your rss-cacher host
         (caddy header gate) → rss-cacher container (fetches Reddit every 15m ± 4m
         jitter from the home IP; serves last good copy; 503 if never fetched)
   ├─ 2. /rss/{sub}/{sort}/.rss    → here.now proxy → www.reddit.com  (fallback)
@@ -41,7 +84,7 @@ browser (r/Feed)
 |---|---|---|
 | rss-cacher (podman, ghcr.io/cksidharthan/rss-cacher) | `container-rss-cacher.service` | port 127.0.0.1:8082, data volume `rss-cacher-data`, FETCH_INTERVAL=15m, FETCH_JITTER=4m |
 | caddy header gate | `rss-cache-caddy.service` | 127.0.0.1:8470, config `~/rss-cache/Caddyfile`, token in `~/rss-cache/cache-token.env` |
-| cloudflared | `cloudflared-rss-cache.service` | tunnel `rss-cache` → rss-cache.snakepit.us |
+| cloudflared | `cloudflared-rss-cache.service` | tunnel `rss-cache` → your hostname |
 
 - Feed registration: `python3 setup-cacher.py` (idempotent; creds in `cacher.env`).
   Add a sub by appending to `SUBS` in the script and re-running.

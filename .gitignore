@@ -9,3 +9,6 @@ __pycache__/
 # OS
 .DS_Store
 .herenow/proxy.local.json
+
+# Local deploy target
+.deploy.local.json

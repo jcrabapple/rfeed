@@ -1,0 +1,54 @@
+# Self-hosted r/Feed: static app + Reddit RSS proxies + optional local cache.
+#
+# Copy this file to a Caddyfile, adjust the port and root path, then run:
+#   caddy run --config Caddyfile
+#
+# Reddit's RSS endpoints don't send CORS headers, so the browser can't fetch
+# them directly. This config implements the three same-origin routes the app
+# expects (the same contract the here.now proxy.json template provides):
+#
+#   /rss/{sub}/{sort}/.rss     -> www.reddit.com   (primary)
+#   /old-rss/{sub}/{sort}/.rss -> old.reddit.com   (fallback)
+#   /cache/rss/{sub}-{sort}    -> local rss-cacher (optional, token gated)
+#
+# If the /cache route is unavailable (no CACHE_TOKEN env set), requests are
+# rejected and the app automatically falls back to the direct routes.
+
+{
+	admin off
+}
+
+:8080 {
+	# Static app files (repo root: index.html, style.css, app.js)
+	root * /path/to/rfeed
+	file_server
+
+	# Primary Reddit route. Reddit blocks default user agents, so spoof one.
+	# handle_path strips /rss, the rewrite prepends /r, so the upstream sees
+	# /r/{sub}/{sort}/.rss on www.reddit.com.
+	handle_path /rss/* {
+		rewrite * /r{uri}
+		reverse_proxy https://www.reddit.com {
+			header_up User-Agent "Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0"
+		}
+	}
+
+	# Fallback Reddit route.
+	handle_path /old-rss/* {
+		rewrite * /r{uri}
+		reverse_proxy https://old.reddit.com {
+			header_up User-Agent "Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0"
+		}
+	}
+
+	# Optional cache route. Gate it behind a shared token so the cacher's
+	# open-registration admin API is never reachable from the internet.
+	# Set CACHE_TOKEN in the environment (or an EnvironmentFile) to enable.
+	handle_path /cache/* {
+		@gated header X-Cache-Token {env.CACHE_TOKEN}
+		handle @gated {
+			reverse_proxy 127.0.0.1:8080
+		}
+		respond 403
+	}
+}
