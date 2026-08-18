@@ -1,0 +1,10 @@
+# Secrets / local state
+cacher.env
+.herenow/state.json
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

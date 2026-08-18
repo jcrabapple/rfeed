@@ -2,7 +2,9 @@
 
 Clean client-side subreddit feed reader. Live at **https://jovial-cosmos-amj3.here.now/**.
 
-No build step, no dependencies: `index.html` + `style.css` + `app.js`, published to here.now.
+No build step, no dependencies: `index.html` + `style.css` + `app.js`.
+
+![r/Feed screenshot](assets/screenshot.png)
 
 ## Feed architecture (cache-first)
 
@@ -69,3 +71,7 @@ JS/CSS change — browsers cache them aggressively.
   the admin API publicly (caddy blocks everything but the gated paths).
 - here.now proxy routes: same-origin only, query params forwarded,
   browser headers stripped (inject User-Agent via the manifest).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
