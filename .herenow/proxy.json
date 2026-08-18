@@ -1,0 +1,22 @@
+{
+  "proxies": {
+    "/cache/*": {
+      "upstream": "https://rss-cache.snakepit.us",
+      "headers": {
+        "X-Cache-Token": "${RSS_CACHE_TOKEN}"
+      }
+    },
+    "/rss/*": {
+      "upstream": "https://www.reddit.com/r/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0"
+      }
+    },
+    "/old-rss/*": {
+      "upstream": "https://old.reddit.com/r/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0"
+      }
+    }
+  }
+}
