@@ -72,6 +72,13 @@ JS/CSS change — browsers cache them aggressively.
 - here.now proxy routes: same-origin only, query params forwarded,
   browser headers stripped (inject User-Agent via the manifest).
 
+## Credits
+
+Feed caching is powered by [**rss-cacher**](https://github.com/cksidharthan/rss-cacher)
+by [Siddharthan CK](https://github.com/cksidharthan) and contributors (MIT License).
+r/Feed runs it as an unmodified container; without it the cache-first layer
+would not exist. Thanks for a clean, well-documented tool.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
