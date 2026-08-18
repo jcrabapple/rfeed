@@ -17,8 +17,16 @@ import sys
 import urllib.request
 
 API = "https://here.now/api/v1"
+# Change this to your own site's slug after `python3 deploy.py --create`.
 PROD_SLUG = "jovial-cosmos-amj3"
 FILES = ["index.html", "style.css", "app.js", ".herenow/proxy.json"]
+# Publish a local proxy override if present (gitignored) instead of the
+# template in the repo: keeps personal upstream hosts out of version control.
+PROXY_SRC = (
+    ".herenow/proxy.local.json"
+    if os.path.exists(".herenow/proxy.local.json")
+    else ".herenow/proxy.json"
+)
 CONTENT_TYPES = {
     "index.html": "text/html; charset=utf-8",
     "style.css": "text/css; charset=utf-8",
@@ -68,7 +76,8 @@ def main():
 
     files = []
     for p in FILES:
-        with open(p, "rb") as f:
+        src = PROXY_SRC if p == ".herenow/proxy.json" else p
+        with open(src, "rb") as f:
             data = f.read()
         files.append({
             "path": p,

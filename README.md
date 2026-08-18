@@ -17,9 +17,18 @@ browser (r/Feed)
   └─ 3. /old-rss/…                → here.now proxy → old.reddit.com (last resort)
 ```
 
-- `.herenow/proxy.json` defines all three routes. `/cache/*` injects
-  `X-Cache-Token` from the here.now account variable `RSS_CACHE_TOKEN`
-  (same value lives in `~/rss-cache/cache-token.env` + Infisical).
+- `.herenow/proxy.json` defines all three routes (the repo version is a
+  template: `/cache/*` points at a placeholder upstream). The author's real
+  upstream lives in `.herenow/proxy.local.json` (gitignored); `deploy.py`
+  publishes the local override when present. The `/cache/*` route injects
+  `X-Cache-Token` from the here.now account variable `RSS_CACHE_TOKEN`,
+  so each deployment uses its own account's variable.
+- **Nobody else's deployment touches the author's cache.** The app only
+  fetches same-origin relative paths, and the author's cache host rejects
+  every request without the token his here.now account holds. To use your
+  own cache: run rss-cacher yourself (see below), create an
+  `RSS_CACHE_TOKEN` variable on your here.now account, and point the
+  `/cache/*` upstream at your host in a `proxy.local.json`.
 - Feed naming convention: `{sub-lowercase}-{sort}` where sort ∈
   hot, new, rising, top, top-week, top-month, top-year, controversial.
   (rss-cacher names must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`.)
@@ -56,8 +65,9 @@ python3 deploy.py --create         # scratch site for testing
 python3 deploy.py --slug <s> --delete
 ```
 
-`deploy.py` publishes index.html, style.css, app.js **and
-`.herenow/proxy.json`** (omit the proxy manifest and the routes vanish).
+`deploy.py` publishes index.html, style.css, app.js **and the proxy
+manifest** (omit it and the routes vanish). It uses
+`.herenow/proxy.local.json` when present, otherwise the repo template.
 Incremental deploys skip unchanged files via SHA-256 hashes.
 Bump the `?v=N` query on `app.js`/`style.css` in index.html on every
 JS/CSS change — browsers cache them aggressively.

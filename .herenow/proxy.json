@@ -1,7 +1,7 @@
 {
   "proxies": {
     "/cache/*": {
-      "upstream": "https://rss-cache.snakepit.us",
+      "upstream": "https://rss-cache.example.com",
       "headers": {
         "X-Cache-Token": "${RSS_CACHE_TOKEN}"
       }

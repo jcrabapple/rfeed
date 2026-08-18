@@ -51,7 +51,7 @@ def main():
 
     if not creds.get("USERNAME"):
         creds["NAME"] = "rfeed-admin"
-        creds["USERNAME"] = "rfeed@snakepit.us"
+        creds["USERNAME"] = "rfeed@localhost"
         creds["PASSWORD"] = secrets.token_urlsafe(24)
         with open(ENV_FILE, "w") as f:
             f.write(f"NAME={creds['NAME']}\nUSERNAME={creds['USERNAME']}\nPASSWORD={creds['PASSWORD']}\n")
