@@ -37,6 +37,7 @@ const ICON_SUN = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" st
 const state = {
   subs: loadSubs(),
   sort: localStorage.getItem(LS_SORT) || "hot",
+  theme: localStorage.getItem(LS_THEME) || "dark",
   tab: "all",
   query: "",
   feeds: new Map(), // sub -> { items: [], error: null, loading: false }
@@ -198,6 +199,7 @@ function parseRss(xml) {
       link,
       date: date ? new Date(date) : new Date(0),
       preview: previewText(content),
+      external: extractExternal(content),
     });
   });
   if (items.length) return items;
@@ -216,6 +218,7 @@ function parseRss(xml) {
       link,
       date: date ? new Date(date) : new Date(0),
       preview: previewText(desc),
+      external: extractExternal(desc),
     });
   });
   return items;
@@ -267,11 +270,30 @@ function previewText(html) {
   if (!text || /^https?:\/\/\S+$/.test(text)) return "";
   return text.length > 220 ? text.slice(0, 220).trimEnd() + "…" : text;
 }
+function extractExternal(html) {
+  // Reddit link posts carry the article URL in the [link] anchor inside the
+  // entry content. Return the first non-Reddit http(s) href + its domain.
+  if (!html) return null;
+  const doc = new DOMParser().parseFromString(
+    html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, ""),
+    "text/html"
+  );
+  for (const a of doc.body ? doc.body.querySelectorAll("a") : []) {
+    const href = a.getAttribute("href") || "";
+    if (!/^https?:\/\//i.test(href)) continue;
+    let host;
+    try { host = new URL(href).hostname.replace(/^www\./, ""); } catch (e) { continue; }
+    if (host === "reddit.com" || host.endsWith(".reddit.com")) continue;
+    return { href, domain: host };
+  }
+  return null;
+}
 
 /* ---------- refresh logic ---------- */
 let refreshGen = 0;
 let lastRefreshAt = 0;
 async function refreshAll() {
+  scheduleAutoRefresh(); // push the next auto tick out (manual refresh resets it)
   const gen = ++refreshGen;
   state.limit = PAGE_SIZE;
   $refreshBtn.classList.add("spinning");
@@ -324,7 +346,7 @@ function currentItems() {
     const f = state.feeds.get(state.tab);
     items = f && f.items ? f.items.map((it) => ({ ...it, sub: state.tab })) : [];
   }
-  if (q) items = items.filter((it) => it.title.toLowerCase().includes(q));
+  if (q) items = items.filter((it) => (it.title + " " + (it.preview || "")).toLowerCase().includes(q));
   return items;
 }
 
@@ -435,6 +457,7 @@ function card(it, showBadge) {
   const el = document.createElement("article");
   el.className = "card";
   if (it.id && state.readIds.has(it.id)) el.classList.add("read");
+  if (it.id) el.dataset.id = it.id;
   const a = document.createElement("a");
   a.className = "title";
   // Only http(s) links: a feed must never inject javascript:/data: hrefs
@@ -453,7 +476,7 @@ function card(it, showBadge) {
     renderTabs();
     renderState();
   };
-  a.addEventListener("click", mark);
+  a.addEventListener("click", (e) => { if (a.classList.contains("linkless")) e.preventDefault(); mark(); });
   a.addEventListener("auxclick", (e) => { if (e.button === 1) mark(); });
   el.appendChild(a);
   const meta = document.createElement("div");
@@ -461,8 +484,22 @@ function card(it, showBadge) {
   const parts = [];
   if (showBadge) parts.push(`<span class="badge">r/${esc(it.sub)}</span>`);
   if (it.author) parts.push(`<span class="author">u/${esc(it.author)}</span>`);
-  parts.push(`<span class="time" data-ts="${+it.date}">${relTime(it.date)}</span>`);
   meta.innerHTML = parts.join("");
+  if (it.external && /^https?:\/\//i.test(it.external.href)) {
+    // Article link from the feed's [link] anchor (link posts only).
+    const ext = document.createElement("a");
+    ext.className = "ext";
+    ext.href = it.external.href;
+    ext.target = "_blank";
+    ext.rel = "noopener";
+    ext.textContent = "↗ " + (it.external.domain || "link");
+    ext.title = "Open article";
+    ext.setAttribute("aria-label", "Open article on " + (it.external.domain || "external site"));
+    ext.addEventListener("click", mark);
+    ext.addEventListener("auxclick", (e) => { if (e.button === 1) mark(); });
+    meta.appendChild(ext);
+  }
+  meta.insertAdjacentHTML("beforeend", `<span class="time" data-ts="${+it.date}">${relTime(it.date)}</span>`);
   el.appendChild(meta);
   if (it.preview) {
     const p = document.createElement("div");
@@ -575,7 +612,8 @@ function renderState() {
     let unread = 0;
     for (const s of state.subs) unread += unreadCount(state.feeds.get(s)?.items);
     const staleCount = state.subs.filter((s) => state.feeds.get(s)?.stale).length;
-    txt = `${errs ? errs + " feed error · " : ""}${staleCount ? staleCount + " feed(s) stale · " : ""}${q ? n + " matches · " : ""}${unread} unread · updated ${relTime(new Date()).replace(" ago", "")}`;
+    txt = `${errs ? errs + " feed error · " : ""}${staleCount ? staleCount + " feed(s) stale · " : ""}${q ? n + " matches · " : ""}${unread} unread${lastRefreshAt ? " · updated " + relTime(new Date(lastRefreshAt)).replace(" ago", "") : ""}`;
+    document.title = (unread ? `(${unread}) ` : "") + "r/Feed";
   }
   $refreshState.textContent = txt;
   $refreshState.title = txt;
@@ -602,6 +640,21 @@ function openFocused() {
   const a = cards[state.focus].querySelector("a.title");
   if (a) a.click();
 }
+function toggleReadFocused() {
+  const cards = feedCards();
+  const el = cards[state.focus];
+  if (!el || !el.dataset.id) return;
+  const id = el.dataset.id;
+  if (state.readIds.has(id)) {
+    state.readIds.delete(id);
+    el.classList.remove("read");
+  } else {
+    markRead(id);
+    el.classList.add("read");
+  }
+  renderTabs();
+  renderState();
+}
 function clearFocus() {
   state.focus = -1;
   feedCards().forEach((c) => c.classList.remove("kbfocus"));
@@ -621,13 +674,25 @@ function relTime(d) {
 
 /* ---------- theme ---------- */
 function setTheme(t, persist) {
-  document.documentElement.setAttribute("data-theme", t);
-  const isDark = t === "dark";
+  state.theme = t;
+  const eff = t === "system"
+    ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+    : (t === "light" ? "light" : "dark");
+  document.documentElement.setAttribute("data-theme", eff);
+  const isDark = eff === "dark";
   $themeBtn.innerHTML = isDark ? ICON_MOON : ICON_SUN;
-  $themeBtn.setAttribute("aria-label", isDark ? "Switch to light theme" : "Switch to dark theme");
-  $themeBtn.title = $themeBtn.getAttribute("aria-label");
+  const label = state.theme === "dark" ? "Switch to light theme"
+    : state.theme === "light" ? "Switch to system theme"
+    : "Switch to dark theme";
+  $themeBtn.setAttribute("aria-label", label);
+  $themeBtn.title = label;
   if ($metaTheme) $metaTheme.setAttribute("content", getComputedStyle(document.body).backgroundColor);
   if (persist) { try { localStorage.setItem(LS_THEME, t); } catch (e) {} }
+}
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (state.theme === "system") setTheme("system", false);
+  });
 }
 
 /* ---------- config share via #rf=<base64url> ---------- */
@@ -694,8 +759,8 @@ $markRead.addEventListener("click", () => {
 });
 
 $themeBtn.addEventListener("click", () => {
-  const cur = document.documentElement.getAttribute("data-theme") || "dark";
-  setTheme(cur === "dark" ? "light" : "dark", true);
+  const next = state.theme === "dark" ? "light" : state.theme === "light" ? "system" : "dark";
+  setTheme(next, true);
 });
 
 document.addEventListener("keydown", (e) => {
@@ -709,6 +774,7 @@ document.addEventListener("keydown", (e) => {
   switch (e.key) {
     case "/": e.preventDefault(); $search.focus(); $search.select(); break;
     case "r": case "R": refreshAll(); break;
+    case "x": toggleReadFocused(); break;
     case "j": case "ArrowDown": e.preventDefault(); moveFocus(1); break;
     case "k": case "ArrowUp": e.preventDefault(); moveFocus(-1); break;
     case "Enter": openFocused(); break;
@@ -724,7 +790,18 @@ setInterval(() => {
   renderState();
 }, 60000);
 
-setInterval(() => { if (document.visibilityState === "visible") refreshAll(); }, AUTO_REFRESH_MS);
+// Self-rescheduling auto refresh: any manual refresh pushes the next auto
+// tick out by a full interval, so a 9:59 manual refresh isn't followed by
+// an immediate 10:00 one.
+let autoRefreshTimer = null;
+function scheduleAutoRefresh() {
+  clearTimeout(autoRefreshTimer);
+  autoRefreshTimer = setTimeout(() => {
+    if (document.visibilityState === "visible") refreshAll();
+    scheduleAutoRefresh();
+  }, AUTO_REFRESH_MS);
+}
+scheduleAutoRefresh();
 
 // Refresh shortly after a hidden tab becomes visible again if the data has
 // gone stale — avoids showing a stale feed to a returning user.
@@ -735,7 +812,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 /* ---------- boot ---------- */
-setTheme(document.documentElement.getAttribute("data-theme") || "dark", false);
+setTheme(state.theme, false);
 importFromHash();
 window.addEventListener("hashchange", () => {
   if (importFromHash()) {

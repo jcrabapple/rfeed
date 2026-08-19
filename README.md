@@ -93,13 +93,17 @@ browser (r/Feed)
 
 ## App features
 
-Search (`/`), read/unread tracking with per-tab unread badges + mark-all-read,
-keyboard nav (`j`/`k`/`Enter`/`r`/`/`/`Esc`), progressive "show more"
-(fetches limit=100), 8 sort variants, dark/light theme, config share via
-`#rf=<base64url>` fragment (auto-imports on load or hashchange),
-dedupe by post ID, stale-cache fallback with staleness surfaced in the UI,
-two-pass retry with backoff on failures.
-State lives in localStorage (`rf.*` keys).
+Search (`/`, matches titles and preview text), read/unread tracking with
+per-tab unread badges + mark-all-read + `x` to toggle the focused card +
+unread count in the document title, keyboard nav (`j`/`k`/`Enter`/`r`/`/`/
+`Esc`), progressive "show more" (fetches limit=100), 8 sort variants,
+dark/light/system theme (follows OS preference in system mode),
+config share via `#rf=<base64url>` fragment (auto-imports on load or
+hashchange), dedupe by post ID, stale-cache fallback with staleness
+surfaced in the UI, two-pass retry with backoff on failures. Link posts
+show the article domain as an `↗` badge that opens the source directly
+(title still opens the Reddit comments page). Honors
+`prefers-reduced-motion`. State lives in localStorage (`rf.*` keys).
 
 ## Deploy
 

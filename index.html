@@ -7,8 +7,8 @@
 <meta name="description" content="A clean RSS reader for your favorite subreddits.">
 <meta name="theme-color" content="#0f1115" id="meta-theme-color">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%B0%3C/text%3E%3C/svg%3E">
-<script>/* apply saved theme before paint */try{var t=localStorage.getItem("rf.theme.v1");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
-<link rel="stylesheet" href="style.css?v=5">
+<script>/* apply saved theme before paint */try{var t=localStorage.getItem("rf.theme.v1");var eff=(t==="light"||t==="dark")?t:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.setAttribute("data-theme",eff);}catch(e){}</script>
+<link rel="stylesheet" href="style.css?v=6">
 <meta property="og:title" content="r/Feed Subreddit Reader" />
 <meta property="og:description" content="A clean live feed reader for your favorite subreddits via Reddit RSS." />
 <meta property="og:type" content="website" />
@@ -46,10 +46,10 @@
 <main id="feed" class="feed" aria-live="polite"></main>
 
 <footer class="foot">
-  <span>j/k navigate · r refresh · / search · Enter open</span>
+  <span>j/k navigate · r refresh · / search · x read · Enter open</span>
   <span class="foot-links"><a href="https://github.com/cksidharthan/rss-cacher" target="_blank" rel="noopener">cached by rss-cacher</a> · <a href="https://here.now" target="_blank" rel="noopener">hosted on here.now</a></span>
 </footer>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

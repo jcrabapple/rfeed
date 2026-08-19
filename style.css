@@ -142,7 +142,7 @@ select {
 }
 .card a.title:hover { color: var(--accent-soft); }
 .card.read a.title { color: var(--text-dim); font-weight: 600; }
-.card.read .card-preview, .card.read .badge, .card.read .author { opacity: 0.7; }
+.card.read .card-preview, .card.read .badge, .card.read .author, .card.read .card-meta a.ext { opacity: 0.7; }
 .card.kbfocus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(255, 69, 0, 0.35);
@@ -157,6 +157,12 @@ select {
   border-radius: 999px; padding: 1px 9px; font-size: 12px;
 }
 .author { color: var(--text-dim); font-weight: 600; }
+.card-meta a.ext {
+  color: var(--text-dim); text-decoration: none; font-weight: 600;
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 1px 9px; font-size: 12px;
+}
+.card-meta a.ext:hover { color: var(--accent-soft); border-color: var(--accent); }
 .card-preview {
   margin-top: 8px; color: var(--text-dim); font-size: 13.5px;
   line-height: 1.45;
@@ -242,3 +248,10 @@ select {
   .tabs { position: static; }
 }
 @media (max-width: 420px) { .foot { display: none; } }
+
+/* Motion */
+@media (prefers-reduced-motion: reduce) {
+  .skel, .icon-btn.spinning svg, .tab.loading::after { animation: none; }
+  .icon-btn, .card { transition: none; }
+  .card:active { transform: none; }
+}
